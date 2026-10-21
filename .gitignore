@@ -1,0 +1,9 @@
+# Regeneratable caches - rebuilt automatically / downloaded on first run (see README setup)
+assets/nemo_cache/
+assets/nltk_data/
+
+__pycache__/
+*.pyc
+*.wav
+*.log
+.env

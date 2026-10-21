@@ -1,0 +1,25 @@
+services:
+  tts:
+    build: .
+    image: kaani-tts:latest
+    container_name: kaani-tts
+    # Host 8030 -> container 8030. Change the left number to move the host port.
+    ports:
+      - "8030:8030"
+    environment:
+      # Voice used for a bare /v1/tts call (no "voice" field). Routes /v1/tts/male
+      # and /v1/tts/female always override this. male | female.
+      KIOSK_TTS_DEFAULT_VOICE: "female"
+    restart: unless-stopped
+
+    # ---- GPU (recommended) --------------------------------------------------
+    # Needs an NVIDIA driver on the host + the NVIDIA Container Toolkit installed.
+    # If the target PC has NO GPU, delete this whole `deploy:` block — the same
+    # image then runs on CPU automatically (slower first token, still fine).
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

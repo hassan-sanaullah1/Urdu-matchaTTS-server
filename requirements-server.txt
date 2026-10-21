@@ -1,0 +1,42 @@
+# Runtime-only deps for the kaani male+female TTS server (Python 3.12).
+# This is the serving subset of the project's requirements.txt — the training/eval
+# stack (faster-whisper, ctranslate2, transformers, pyarrow, av, praat, jiwer) is left out.
+# Install torch from the cu124 index so the same image runs on GPU or CPU:
+#   pip install --extra-index-url https://download.pytorch.org/whl/cu124 -r requirements-server.txt
+#   pip install --no-deps diffusers==0.25.0 conformer==0.3.2        # see note at bottom
+
+# --- model + audio ---------------------------------------------------------
+torch==2.6.0+cu124
+torchaudio==2.6.0+cu124
+lightning==2.4.0
+numpy==1.26.4
+scipy==1.17.1
+soundfile==0.14.0
+librosa==0.11.0
+einops==0.8.2
+hydra-core==1.3.2
+omegaconf==2.3.0
+rich==15.0.0
+matplotlib==3.11.1
+wget==3.2
+inflect==7.5.0
+Unidecode==1.4.0
+PyYAML==6.0.3
+huggingface_hub==0.36.2
+safetensors==0.8.0
+vocos==0.1.0
+encodec==0.1.1
+
+# --- text front end --------------------------------------------------------
+num2words==0.5.14
+nemo_text_processing==1.2.0
+pynini==2.1.6.post1
+nltk==3.10.3
+
+# --- HTTP server -----------------------------------------------------------
+fastapi==0.115.6
+uvicorn==0.34.0
+
+# diffusers 0.25.0 and conformer 0.3.2 are installed separately with --no-deps
+# (0.25.0 is pinned because Matcha uses parts newer releases removed; --no-deps
+#  stops it upgrading the packages above). The Dockerfile already does this.
