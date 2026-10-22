@@ -55,6 +55,19 @@ SPLIT = re.compile(r"(?<=[۔.!?؟])\s+|\n+")                  # the kiosk's sent
 ABBR_END = re.compile(r"(?:\b(?:Lt|Gen|Dr|Mr|Mrs|Ms|Col|Maj|Capt|Brig|Prof|Engr|Retd|No|Co|Inc|Ltd|Pvt|St|Jr|Sr|vs|Rs|"
                       r"approx|e\.g|i\.e)|(?<![A-Za-z])[A-Z])\.$")
 MAX_CHARS = 3000
+
+# A sentence-final nasal is swallowed: "وعلیکم السلام" came out "walaikum asalaa", in both voices. The
+# model only closes a word-final consonant when more speech follows it -- the same م is clean mid-sentence
+# (measured off the model's own alignment: energy over the م's frames is ~0.00 of the utterance's speech
+# level when it ends the input, 0.36-0.49 when a clause follows). Spelling cannot fix it: shadda, sukun, a
+# doubled م, a split-off م, and trailing ! ۔ , were all still ~0.0-0.16. So render with a throwaway clause
+# appended, then cut the audio back at the frame the alignment says that clause starts. A client that sends
+# one sentence per request (the Mari kiosk does) always hands the greeting over as a whole utterance, so
+# there is no following text to borrow.
+PAD_TEXT = " آپ کیسے ہیں"
+PAD_AFTER = re.compile(r"[من]\s*[!.۔?؟,،\"'\)]*$")      # last word ends in م or ن
+PAD_FADE_MS = 12                                                   # no click where the cut lands
+
 STEPS, TEMPERATURE = 32, 0.35
 WARM_UP = [
     "warm up.",
@@ -169,6 +182,22 @@ class KaaniTTS:
             cache.popitem(last=False)
 
     # ---- audio ------------------------------------------------------------------------------------------
+    @staticmethod
+    def _drop_pad(w, attn, n_read, hop=256):
+        """Cut PAD_TEXT's audio off the end, at the frame the model's own alignment puts it.
+
+        encode() interleaves blanks (inter = blank, c0, blank, c1, ... ), so read character i is token
+        2i+1. Keeping the blank that follows the last real character keeps that consonant's release.
+        """
+        a = attn[0, 0].cpu().numpy()
+        keep = int(a[:(n_read - 1) * 2 + 3].sum()) * hop                # frames -> samples
+        if not 0 < keep < len(w):
+            return w
+        w = w[:keep].copy()
+        fade = min(int(PAD_FADE_MS / 1000 * SR), len(w))
+        w[-fade:] *= np.linspace(1.0, 0.0, fade, dtype="float32")
+        return w
+
     def _render(self, sentence, spk, k, seed, speed, use_cache=True):
         """-> (audio or None, read, ms_text, ms_model, cached). Caller holds no lock; this takes it."""
         with self.lock:
@@ -181,7 +210,8 @@ class KaaniTTS:
             if use_cache and key in self._audio:
                 self._audio.move_to_end(key)
                 return self._audio[key], read, (t1 - t0) * 1000, 0.0, True
-            inter = self._tts.encode(read)
+            pad = PAD_TEXT if PAD_AFTER.search(read) else ""          # see PAD_TEXT: saves a final م / ن
+            inter = self._tts.encode(read + pad)
             torch.manual_seed(seed * 100 + k)
             with torch.inference_mode():
                 o = self.model.synthesise(torch.tensor([inter], device=self.device),
@@ -189,6 +219,8 @@ class KaaniTTS:
                                           n_timesteps=STEPS, temperature=TEMPERATURE, length_scale=1.0 / speed,
                                           spks=torch.full((1,), spk, dtype=torch.long, device=self.device))
                 w = self.vocos.decode(o["mel"].to(self.vocoder_device)).cpu().numpy().squeeze().astype("float32")
+            if pad:
+                w = self._drop_pad(w, o["attn"], len(read))
             audio = self._tts.normalize(w)
             if use_cache:
                 self._put(self._audio, key, audio)
